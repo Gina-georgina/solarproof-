@@ -46,3 +46,6 @@ jobs:
       - name: Run tests
         run: cargo test --all
         working-directory: apps/contracts
+
+      - name: Verify contract snapshots are unchanged
+        run: bash scripts/check-contract-snapshots.sh
