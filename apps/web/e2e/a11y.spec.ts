@@ -9,6 +9,17 @@ import { test, expect } from '@playwright/test'
 import { checkA11y } from './helpers/a11y'
 
 test.describe('Accessibility (axe-core)', () => {
+  test('sets RTL direction for the Arabic preview locale', async ({ page }) => {
+    await page.goto('/')
+    await page.evaluate(() => {
+      document.cookie = 'locale=ar; path=/'
+    })
+    await page.reload()
+
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ar')
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+  })
+
   test('verify page has no critical/serious violations', async ({ page }) => {
     await page.goto('/verify')
     await checkA11y(page)

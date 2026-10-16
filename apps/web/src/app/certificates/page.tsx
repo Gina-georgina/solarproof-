@@ -205,14 +205,14 @@ export default function CertificatesPage() {
           {/* Search */}
           <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+              <Search className="absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
               <input
                 type="search"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Cert ID or meter ID…"
                 aria-label="Search by certificate ID or meter ID"
-                className="w-56 rounded-md border border-gray-300 bg-white py-1.5 pl-8 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                className="w-56 rounded-md border border-gray-300 bg-white py-1.5 ps-8 pe-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
             <button
@@ -281,7 +281,7 @@ export default function CertificatesPage() {
           )}
 
           {response && (
-            <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+            <span className="ms-auto text-xs text-gray-400 dark:text-gray-500">
               {response.total} result{response.total !== 1 ? 's' : ''}
             </span>
           )}
@@ -296,7 +296,7 @@ export default function CertificatesPage() {
             <button
               onClick={handleBulkRetire}
               disabled={bulkRetiring || !connected}
-              className="ml-auto rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="ms-auto rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {bulkRetiring ? 'Retiring…' : 'Retire selected'}
             </button>
