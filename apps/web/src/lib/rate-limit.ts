@@ -17,6 +17,14 @@ interface Bucket {
 
 const store = new Map<string, Bucket>()
 
+/**
+ * Clear all rate-limit buckets. Intended for tests so state does not leak
+ * between cases; safe to call at runtime (e.g. on hot reload).
+ */
+export function resetRateLimitStore(): void {
+  store.clear()
+}
+
 export interface RateLimitResult {
   allowed: boolean
   remaining: number

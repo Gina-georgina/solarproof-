@@ -13,7 +13,10 @@
  * Failures are logged and a Sentry alert is sent. The job never throws so the
  * scheduler always receives a response.
  *
- * See docs/runbooks/ttl-extend.md for operational details.
+ * If this job fails and entries expire, follow docs/runbooks/ttl-extend.md for
+ * manual recovery via `stellar contract extend-footprint-ttl`. The runbook
+ * covers detection of expired entries, manual extension and verification of
+ * recovery.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
