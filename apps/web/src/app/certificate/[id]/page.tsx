@@ -15,6 +15,8 @@ import { createServiceClient } from '@/lib/supabase'
 import { CertificateChain, type ChainStep } from '@/components/certificate-chain'
 import { CopyableText } from '@/components/copy-button'
 import { TransferHistoryTimeline } from '@/components/transfer-history-timeline'
+import { CertificateQRCode } from '@/components/certificate-qr-code'
+import { PrintButton } from '@/components/print-button'
 
 // ---------------------------------------------------------------------------
 // Data fetching (server-side, no auth required)
@@ -121,10 +123,10 @@ export default async function CertificatePage({
   ]
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8 sm:py-12">
+    <div className="print-page mx-auto max-w-2xl px-4 py-8 sm:py-12">
       {/* Header */}
       <header className="mb-8">
-        <div className="mb-1 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+        <div className="print-hide mb-1 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Link
             href="/verify"
             className="hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 rounded"
@@ -157,6 +159,54 @@ export default async function CertificatePage({
         </div>
       </header>
 
+      {/* Printable certificate summary: QR code + key data */}
+      <section
+        aria-label="Certificate summary"
+        className="print-summary mb-8 flex flex-col gap-4 rounded-xl border border-gray-200 p-4 dark:border-gray-800 sm:flex-row sm:items-start sm:justify-between"
+      >
+        <dl className="grid flex-1 grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Certificate ID
+            </dt>
+            <dd className="break-all font-mono text-gray-900 dark:text-gray-100">{id}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Energy
+            </dt>
+            <dd className="text-gray-900 dark:text-gray-100">{Number(cert.kwh).toFixed(3)} kWh</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Issued
+            </dt>
+            <dd className="text-gray-900 dark:text-gray-100">
+              {cert.issued_at ? new Date(cert.issued_at).toLocaleString() : '—'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Retired
+            </dt>
+            <dd className="text-gray-900 dark:text-gray-100">
+              {cert.retired_at ? new Date(cert.retired_at).toLocaleString() : 'Not retired'}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Anchor tx hash
+            </dt>
+            <dd className="break-all font-mono text-gray-900 dark:text-gray-100">
+              {cert.anchor_tx_hash ?? '—'}
+            </dd>
+          </div>
+        </dl>
+        <div className="print-qr shrink-0 self-center sm:self-start">
+          <CertificateQRCode certificateId={id} />
+        </div>
+      </section>
+
       {/* Chain of custody stepper */}
       <CertificateChain steps={steps} />
 
@@ -164,7 +214,7 @@ export default async function CertificatePage({
       <TransferHistoryTimeline certificateId={id} />
 
       {/* Footer actions */}
-      <div className="mt-8 flex flex-wrap gap-3">
+      <div className="print-hide mt-8 flex flex-wrap gap-3">
         <Link
           href={`/verify?id=${id}`}
           className="rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2"
@@ -177,6 +227,7 @@ export default async function CertificatePage({
         >
           Dashboard
         </Link>
+        <PrintButton />
       </div>
     </div>
   )

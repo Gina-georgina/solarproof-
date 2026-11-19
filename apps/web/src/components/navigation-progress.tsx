@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 
 /**
  * Thin top-of-page progress bar that fires on every pathname change.
@@ -13,15 +13,28 @@ import { usePathname } from 'next/navigation'
  */
 export function NavigationProgress() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [progress, setProgress] = useState(0)
   const [visible, setVisible] = useState(false)
-  const prevPathname = useRef(pathname)
+  const [reducedMotion, setReducedMotion] = useState(false)
+  const routeKey = `${pathname}?${searchParams?.toString() ?? ''}`
+  const prevRouteKey = useRef(routeKey)
   const completeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Track the user's reduced-motion preference
   useEffect(() => {
-    if (pathname === prevPathname.current) return
-    prevPathname.current = pathname
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+    setReducedMotion(query.matches)
+    const onChange = (event: MediaQueryListEvent) => setReducedMotion(event.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+
+  useEffect(() => {
+    if (routeKey === prevRouteKey.current) return
+    prevRouteKey.current = routeKey
 
     // Clear any in-flight timers from a previous navigation
     if (completeTimer.current) clearTimeout(completeTimer.current)
@@ -43,7 +56,7 @@ export function NavigationProgress() {
       if (completeTimer.current) clearTimeout(completeTimer.current)
       if (hideTimer.current) clearTimeout(hideTimer.current)
     }
-  }, [pathname])
+  }, [routeKey])
 
   if (!visible) return null
 
@@ -57,8 +70,12 @@ export function NavigationProgress() {
       className="pointer-events-none fixed inset-x-0 top-0 z-[9999] h-0.5"
     >
       <div
-        className="h-full bg-yellow-400 transition-all duration-200 ease-out"
-        style={{ width: `${progress}%` }}
+        className={
+          reducedMotion
+            ? 'h-full bg-yellow-400'
+            : 'h-full bg-yellow-400 transition-all duration-200 ease-out'
+        }
+        style={{ width: `${reducedMotion ? 100 : progress}%` }}
       />
     </div>
   )

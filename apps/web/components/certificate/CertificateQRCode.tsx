@@ -172,13 +172,21 @@ export default function CertificateQRCode({ certId, summary }: CertificateQRCode
             break-inside: avoid;
           }
           .certificate-qr__actions {
-            display: none;
+            display: none !important;
+          }
+          .certificate-qr__code {
+            min-height: 2cm;
           }
           .certificate-qr__code svg {
-            width: 200px;
-            height: 200px;
+            width: auto;
+            height: auto;
+            min-width: 2cm;
+            min-height: 2cm;
+            max-width: 100%;
           }
           .certificate-qr__summary,
+          .certificate-qr__summary dt,
+          .certificate-qr__summary dd,
           .certificate-qr__url {
             color: #000000;
           }

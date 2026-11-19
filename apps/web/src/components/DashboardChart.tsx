@@ -163,8 +163,21 @@ function DashboardChartContent() {
 
   const focusedPoint = focusedIndex !== null ? data[focusedIndex] : null
 
+  // Color-blind-safe palette tokens (see globals.css / tailwind.config and
+  // docs/COLOR_CONTRAST_AUDIT.md). Okabe–Ito derived hues remain distinguishable
+  // under deuteranopia, protanopia, and tritanopia simulations.
+  const CHART_COLORS = {
+    energy: 'var(--chart-energy, #0072b2)',
+    energyPattern: 'var(--chart-energy-pattern, #0072b2)',
+  }
+
   const legendItems = [
-    { value: 'Energy (kWh)', color: '#f59e0b', description: 'Energy output in kilowatt-hours shown as an amber filled area' },
+    {
+      value: 'Energy (kWh)',
+      color: CHART_COLORS.energy,
+      pattern: 'diagonal',
+      description: 'Energy output in kilowatt-hours shown as a blue filled area with a diagonal hatch pattern',
+    },
   ]
 
   return (
@@ -195,7 +208,7 @@ function DashboardChartContent() {
           Area chart of the most recent meter readings showing kilowatt-hours generated over time. {updateMode} {dataSummary}
         </p>
         <p id="live-generation-legend" className="sr-only">
-          Legend: Energy output in kWh, shown as an amber filled area.
+          Legend: Energy output in kWh, shown as a blue filled area with a diagonal hatch pattern.
         </p>
 
         {/* Keyboard-navigable chart region */}
@@ -216,9 +229,14 @@ function DashboardChartContent() {
                 <AreaChart data={data} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="energyGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.05} />
+                      <stop offset="5%" stopColor={CHART_COLORS.energy} stopOpacity={0.4} />
+                      <stop offset="95%" stopColor={CHART_COLORS.energy} stopOpacity={0.05} />
                     </linearGradient>
+                    {/* Pattern fills act as a secondary differentiator alongside color */}
+                    <pattern id="energyPattern" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                      <rect width="8" height="8" fill={CHART_COLORS.energy} fillOpacity={0.12} />
+                      <line x1="0" y1="0" x2="0" y2="8" stroke={CHART_COLORS.energyPattern} strokeWidth={2} strokeOpacity={0.55} />
+                    </pattern>
                   </defs>
                   <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#6b7280' }} />
@@ -227,11 +245,24 @@ function DashboardChartContent() {
                   <Area
                     type="monotone"
                     dataKey="energy"
-                    stroke="#f59e0b"
+                    stroke={CHART_COLORS.energy}
                     fill="url(#energyGradient)"
                     strokeWidth={3}
                     isAnimationActive={false}
                     name="Energy (kWh)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="energy"
+                    stroke="none"
+                    fill="url(#energyPattern)"
+                    strokeWidth={0}
+                    isAnimationActive={false}
+                    name="Energy pattern"
+                    legendType="none"
+                    tooltipType="none"
+                    activeDot={false}
+                    dot={false}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -262,11 +293,15 @@ function DashboardChartContent() {
             >
               {legendItems.map((item) => (
                 <div key={item.value} className="flex items-center gap-1.5">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                    aria-hidden="true"
-                  />
+                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" className="inline-block">
+                    <defs>
+                      <pattern id="legendEnergyPattern" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                        <rect width="6" height="6" fill={item.color} fillOpacity={0.12} />
+                        <line x1="0" y1="0" x2="0" y2="6" stroke={item.color} strokeWidth={1.5} strokeOpacity={0.55} />
+                      </pattern>
+                    </defs>
+                    <rect width="12" height="12" rx="2" fill={`url(#legendEnergyPattern)`} stroke={item.color} strokeWidth={1.5} />
+                  </svg>
                   <span aria-label={item.description}>{item.value}</span>
                 </div>
               ))}
