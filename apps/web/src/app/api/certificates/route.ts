@@ -4,12 +4,24 @@ import { createServiceClient } from '@/lib/supabase'
 
 const MAX_PAGE_SIZE = 100
 
+// Allowlist for free-text search input. Supabase's `.or()` builds a raw
+// PostgREST filter string, so any interpolated value must be strictly
+// constrained to characters that cannot alter the filter grammar
+// (no commas, dots, parentheses, quotes, wildcards, etc.).
+const SAFE_SEARCH_PATTERN = /^[A-Za-z0-9_-]+$/
+
 const QuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(20),
   cursor: z.string().optional(),
   // Backward-compatible offset pagination (deprecated — prefer cursor)
   page: z.coerce.number().int().min(1).optional(),
-  q: z.string().trim().default(''),
+  q: z
+    .string()
+    .trim()
+    .default('')
+    .refine((value) => value === '' || SAFE_SEARCH_PATTERN.test(value), {
+      message: 'q may only contain letters, numbers, hyphens and underscores',
+    }),
   status: z.enum(['active', 'retired']).nullable().optional(),
   date_from: z.string().optional(),
   date_to: z.string().optional(),
@@ -74,7 +86,10 @@ export async function GET(req: NextRequest) {
   if (dateFrom) query = query.gte('issued_at', dateFrom)
   if (dateTo) query = query.lte('issued_at', dateTo + 'T23:59:59.999Z')
 
-  // Text search: match cert id prefix OR meter_id prefix via the joined reading
+  // Text search: match cert id prefix OR meter_id prefix via the joined reading.
+  // `q` has already been validated against SAFE_SEARCH_PATTERN by QuerySchema,
+  // so it cannot break out of the PostgREST filter expression. The `%` wildcard
+  // is appended outside the interpolated value.
   if (q) {
     query = query.or(`id.ilike.${q}%,readings.meter_id.ilike.${q}%`)
   }

@@ -108,6 +108,26 @@ Archival (not deletion) is the default action at retention boundary — see §5.
 - **RLS** — all four tables have Row Level Security enabled (see `supabase/migrations/20240101000003_rls.sql`). Service-role key access is restricted to server-side API routes only.
 - **Encryption at rest** — provided by Supabase (AES-256). No additional column-level encryption is currently applied; consider it for `signature_hex` in a future migration if threat model requires it.
 
+### Sentry error-report scrubbing
+
+Error reports sent to Sentry must **not** contain member PII or cryptographic proof material. All three Sentry configurations (`sentry.client.config.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`) install a `beforeSend` hook that scrubs the following fields from event payloads (message, exception values, breadcrumbs, extra/context data, request data, and tags):
+
+| Scrubbed field | Classification | Why it must not leave the system |
+|---|---|---|
+| `email` | PII | Direct identifier of a natural person |
+| `access_token` | Restricted | Live credential; grants API access as the member |
+| `refresh_token` | Restricted | Live credential; allows session re-issuance |
+| `pubkey_hex` | Confidential | Ed25519 public key; exposure enables signature-verification spoofing attempts |
+| `signature_hex` | Restricted | Ed25519 signature; cryptographic proof material |
+
+The hook applies the following regex patterns (documented alongside the implementation in `sentry.server.config.ts`):
+
+- **JWT pattern** — `eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+` matches three-part base64url JWTs (header, payload, signature) wherever they appear, including inside stack traces and breadcrumb URLs. Matches are replaced with `[REDACTED_JWT]`.
+- **Email pattern** — `[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}` matches email addresses in free-text messages and exception values. Matches are replaced with `[REDACTED_EMAIL]`.
+- **Keyed-field pattern** — `(access_token|refresh_token|pubkey_hex|signature_hex)["']?\s*[:=]\s*["']?[^"'\s,}]+` matches the sensitive field names followed by a value in JSON, query-string, or log-style output. Matches are replaced with `[REDACTED]`.
+
+The scrubbing is verified by an integration test that captures a synthetic error containing all five fields and asserts none of the original values appear in the event passed to Sentry.
+
 ---
 
 ## 5. Deletion and Archival Procedures
