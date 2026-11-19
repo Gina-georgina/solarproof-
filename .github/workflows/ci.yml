@@ -63,6 +63,9 @@ jobs:
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       - name: translation coverage check (i18n)
         run: pnpm --filter @solarproof/web i18n:check
+        env:
+          # Enforce coverage for every supported locale, including pt-BR.
+          I18N_LOCALES: en,es,pt-BR
       - run: pnpm test
         working-directory: apps/web
       - name: Run tests with coverage

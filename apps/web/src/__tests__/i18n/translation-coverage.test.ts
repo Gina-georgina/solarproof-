@@ -34,6 +34,7 @@ function loadMessages(locale: string): JsonValue {
 describe('i18n translation coverage', () => {
   const enKeys = new Set(collectKeyPaths(loadMessages('en')));
   const esKeys = new Set(collectKeyPaths(loadMessages('es')));
+  const ptBRKeys = new Set(collectKeyPaths(loadMessages('pt-BR')));
 
   it('messages/es.json has the same key set as messages/en.json', () => {
     const missingInEs = [...enKeys].filter((key) => !esKeys.has(key)).sort();
@@ -45,6 +46,18 @@ describe('i18n translation coverage', () => {
         `Missing in es.json: ${missingInEs.length ? missingInEs.join(', ') : 'none'}\n` +
         `Extra in es.json: ${extraInEs.length ? extraInEs.join(', ') : 'none'}`,
     ).toEqual({ missingInEs: [], extraInEs: [] });
+  });
+
+  it('messages/pt-BR.json has the same key set as messages/en.json', () => {
+    const missingInPtBR = [...enKeys].filter((key) => !ptBRKeys.has(key)).sort();
+    const extraInPtBR = [...ptBRKeys].filter((key) => !enKeys.has(key)).sort();
+
+    expect(
+      { missingInPtBR, extraInPtBR },
+      `Translation key parity mismatch between en.json and pt-BR.json.\n` +
+        `Missing in pt-BR.json: ${missingInPtBR.length ? missingInPtBR.join(', ') : 'none'}\n` +
+        `Extra in pt-BR.json: ${extraInPtBR.length ? extraInPtBR.join(', ') : 'none'}`,
+    ).toEqual({ missingInPtBR: [], extraInPtBR: [] });
   });
 
   it('messages/en.json contains at least one translation key', () => {

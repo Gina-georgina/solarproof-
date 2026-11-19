@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders } from '@/lib/cors'
 import { checkCsrf } from '@/lib/csrf'
 
-export const SUPPORTED_LOCALES = ['en', 'es', 'fr', 'de', 'pt', 'ar'] as const
+export const SUPPORTED_LOCALES = ['en', 'es', 'fr', 'de', 'pt', 'pt-BR', 'ar'] as const
 export type Locale = typeof SUPPORTED_LOCALES[number]
 
 /** API routes that are exempt from CSRF validation (machine-to-machine, no browser session). */

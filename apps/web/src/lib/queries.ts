@@ -44,3 +44,57 @@ export function useVerifyCertificate() {
     retry: false,
   })
 }
+
+/**
+ * Public, non-PII aggregate profile for a cooperative.
+ *
+ * Intentionally excludes sensitive fields such as `admin_address` and
+ * operator contact details (e.g. email). Only aggregate/transparency data
+ * is exposed here for the public /cooperatives/[id] page.
+ */
+export interface PublicCooperativeProfile {
+  id: string
+  name: string
+  location: string | null
+  total_kwh_produced: number
+  active_meters: number
+  certificates_issued: number
+}
+
+/**
+ * Fetch the public aggregate profile for a cooperative.
+ *
+ * The API endpoint is expected to return only non-PII fields; this helper
+ * additionally strips any unexpected sensitive fields defensively so that
+ * PII can never leak into the public page.
+ */
+export async function getPublicCooperativeProfile(
+  id: string,
+): Promise<PublicCooperativeProfile> {
+  const response = await fetch(
+    `/api/cooperatives/${encodeURIComponent(id)}/public`,
+  )
+  const body = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    throw new Error(
+      (body as { error?: string })?.error ?? 'Failed to load cooperative profile',
+    )
+  }
+
+  const raw = (body ?? {}) as Record<string, unknown>
+
+  return {
+    id: typeof raw.id === 'string' ? raw.id : id,
+    name: typeof raw.name === 'string' ? raw.name : '',
+    location: typeof raw.location === 'string' ? raw.location : null,
+    total_kwh_produced:
+      typeof raw.total_kwh_produced === 'number' ? raw.total_kwh_produced : 0,
+    active_meters:
+      typeof raw.active_meters === 'number' ? raw.active_meters : 0,
+    certificates_issued:
+      typeof raw.certificates_issued === 'number'
+        ? raw.certificates_issued
+        : 0,
+  }
+}

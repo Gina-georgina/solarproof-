@@ -21,6 +21,7 @@ const links = [
   { href: '/', labelKey: 'dashboard' },
   { href: '/meters', labelKey: 'meters' },
   { href: '/certificates', labelKey: 'certificates' },
+  { href: '/marketplace', labelKey: 'marketplace' },
   { href: '/governance', labelKey: 'governance' },
   { href: '/verify', labelKey: 'verify' },
   { href: '/admin', labelKey: 'admin' },

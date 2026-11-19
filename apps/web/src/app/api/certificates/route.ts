@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
+import { mintCertificates } from '@/lib/stellar'
+import { mintEvmNft } from '@/lib/bridge'
 
 const MAX_PAGE_SIZE = 100
 
@@ -109,4 +111,117 @@ export async function GET(req: NextRequest) {
     has_more: hasMore,
     total: count ?? 0,
   })
+}
+
+const IssueSchema = z.object({
+  cooperative_id: z.string().uuid(),
+  reading_ids: z.array(z.string().uuid()).min(1),
+})
+
+/**
+ * POST /api/v1/certificates
+ *
+ * Issues certificates for the given readings by minting SKWH tokens on
+ * Stellar. When the owning cooperative has opted in to EVM NFTs
+ * (`evm_nft_enabled`), an ERC-721 token is also minted on the secondary
+ * chain via the bridge microservice, with metadata pointing at
+ * `/verify/[id]`. EVM mint failures are non-fatal: the Stellar issuance
+ * stands and the EVM status is recorded for later retry.
+ */
+export async function POST(req: NextRequest) {
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const parsed = IssueSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+  }
+
+  const { cooperative_id: cooperativeId, reading_ids: readingIds } = parsed.data
+  const db = createServiceClient()
+
+  // Verify the cooperative exists and read its EVM opt-in flag
+  const { data: cooperative, error: coopError } = await db
+    .from('cooperatives')
+    .select('id, evm_nft_enabled')
+    .eq('id', cooperativeId)
+    .single()
+
+  if (coopError || !cooperative) {
+    return NextResponse.json({ error: 'Cooperative not found' }, { status: 404 })
+  }
+
+  // Mint the SKWH tokens on Stellar
+  let minted: Array<{ id: string; kwh: number; mint_tx_hash: string }>
+  try {
+    minted = await mintCertificates({ cooperativeId, readingIds })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Mint failed'
+    return NextResponse.json({ error: message }, { status: 502 })
+  }
+
+  const evmEnabled = Boolean(
+    (cooperative as { evm_nft_enabled?: boolean | null }).evm_nft_enabled
+  )
+
+  const results: Array<{
+    id: string
+    kwh: number
+    mint_tx_hash: string
+    evm_token_id: string | null
+    evm_tx_hash: string | null
+    evm_issuance_status: 'skipped' | 'pending' | 'minted' | 'failed'
+  }> = []
+
+  for (const cert of minted) {
+    let evmTokenId: string | null = null
+    let evmTxHash: string | null = null
+    let evmStatus: 'skipped' | 'pending' | 'minted' | 'failed' = 'skipped'
+
+    if (evmEnabled) {
+      evmStatus = 'pending'
+      try {
+        const evm = await mintEvmNft({
+          certificateId: cert.id,
+          cooperativeId,
+          kwh: cert.kwh,
+          metadataUri: `/verify/${cert.id}`,
+        })
+        evmTokenId = evm.tokenId
+        evmTxHash = evm.txHash
+        evmStatus = 'minted'
+      } catch {
+        // Non-fatal: Stellar issuance already succeeded; record for retry
+        evmStatus = 'failed'
+      }
+    }
+
+    const { error: updateError } = await db
+      .from('certificates')
+      .update({
+        evm_token_id: evmTokenId,
+        evm_tx_hash: evmTxHash,
+        evm_issuance_status: evmStatus,
+      })
+      .eq('id', cert.id)
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 })
+    }
+
+    results.push({
+      id: cert.id,
+      kwh: cert.kwh,
+      mint_tx_hash: cert.mint_tx_hash,
+      evm_token_id: evmTokenId,
+      evm_tx_hash: evmTxHash,
+      evm_issuance_status: evmStatus,
+    })
+  }
+
+  return NextResponse.json({ data: results }, { status: 201 })
 }
