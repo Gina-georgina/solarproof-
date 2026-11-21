@@ -8,7 +8,15 @@ const withNextIntl = createNextIntlPlugin('./src/i18n.ts')
 // Documented in SECURITY.md — keep both in sync when changing values.
 const securityHeaders = [
   // HSTS: enforce HTTPS for at least one year, including all subdomains.
-  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+  // Only emitted in production so local development over HTTP is unaffected.
+  ...(process.env.NODE_ENV === 'production'
+    ? [
+        {
+          key: 'Strict-Transport-Security',
+          value: 'max-age=31536000; includeSubDomains; preload',
+        },
+      ]
+    : []),
   // Prevent the app from being framed (clickjacking protection).
   { key: 'X-Frame-Options', value: 'DENY' },
   // Disable MIME type sniffing.
