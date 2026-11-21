@@ -112,6 +112,7 @@ Content-Type: application/json
 | `400 Bad Request` | Validation failed | `{ error: { fieldErrors, formErrors } }` |
 | `401 Unauthorized` | Ed25519 signature invalid | `{ error: "Invalid meter signature" }` |
 | `404 Not Found` | `meter_id` not registered or inactive | `{ error: "Meter not found or inactive" }` |
+| `429 Too Many Requests` | Rate limit exceeded (10 req/60s per IP, 60 req/60s per meter key) | `{ error: "Rate limit exceeded" }` |
 | `500 Internal Server Error` | Anchor or mint failed | `{ error: string, reading_id: string, anchor_tx_hash?: string }` |
 
 **201 response body**
@@ -149,6 +150,7 @@ GET /api/verify?id=a1b2c3d4-e5f6-7890-abcd-ef1234567890
 | `200 OK` | Certificate found — returns chain of custody |
 | `400 Bad Request` | `id` parameter missing |
 | `404 Not Found` | No certificate matches the given `id` |
+| `429 Too Many Requests` | Rate limit exceeded (30 req/60s per IP) |
 
 **200 response body**
 
@@ -316,9 +318,56 @@ Liveness check used by uptime monitoring.
 
 ---
 
+## Rate Limits
+
+Rate limits are enforced per client and per scope. Every limited response includes the standard `X-RateLimit-*` headers, and rejected requests additionally include `Retry-After`.
+
+### Policies
+
+| Scope | Applies to | Limit | Window |
+|---|---|---|---|
+| Per IP address | `POST /api/readings` | 10 requests | 60 seconds |
+| Per IP address | `GET /api/verify` | 30 requests | 60 seconds |
+| Per meter public key | Reading submissions (`POST /api/readings`, `POST /api/v1/readings`, `POST /api/v1/readings/batch`) | 60 requests | 60 seconds |
+
+The per-IP and per-meter limits are independent: a request must satisfy both to succeed. Batch submissions count each contained reading against the submitting meter's public key.
+
+### Sliding window
+
+Limits use a **sliding window** rather than a fixed window. Each request is timestamped, and the counter reflects only requests made within the trailing window (e.g. the last 60 seconds). A client that stops sending requests regains capacity gradually as older requests age out of the window — there is no hard reset at a fixed clock boundary.
+
+### Response headers
+
+| Header | Description |
+|---|---|
+| `X-RateLimit-Limit` | Maximum number of requests permitted in the current window for the applicable scope |
+| `X-RateLimit-Remaining` | Number of requests still available in the current window |
+| `X-RateLimit-Reset` | Unix timestamp (seconds) at which the oldest counted request leaves the window and capacity is restored |
+| `Retry-After` | Seconds the client must wait before retrying. Only present on `429` responses |
+
+### Exceeding a limit
+
+When a limit is exceeded the server responds with **HTTP 429 Too Many Requests** and does not process the request.
+
+```http
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+X-RateLimit-Limit: 10
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1745366460
+Retry-After: 42
+
+{ "error": "Rate limit exceeded" }
+```
+
+Clients should **back off until `Retry-After` seconds have elapsed** before retrying, and should honour `X-RateLimit-Remaining` to avoid hitting the limit again. Retrying earlier will continue to receive `429` responses.
+
+---
+
 ## Error format
 
 All error responses follow this shape:
+=======
 
 ```json
 { "error": "human-readable message" }
@@ -344,6 +393,7 @@ Validation errors from `POST /api/readings` return a Zod flatten structure:
 | `400` | Missing or invalid request parameters |
 | `401` | Ed25519 signature verification failed |
 | `404` | Resource (meter or certificate) not found |
+| `429` | Rate limit exceeded — see [Rate Limits](#rate-limits) |
 | `500` | Upstream failure: Supabase write, Stellar anchor, or certificate mint |
 
 ---

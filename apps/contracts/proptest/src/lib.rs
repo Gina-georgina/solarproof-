@@ -4,6 +4,7 @@
 //!   P1. mint amount is always positive (contract rejects ≤ 0)
 //!   P2. balance never goes negative after any sequence of mints/burns
 //!   P3. vote count is monotonically non-decreasing (yes + no only increases)
+//!   P4. weighted vote accumulation never overflows i128 (issue #750)
 //!
 //! Run with:
 //!   cargo test --manifest-path apps/contracts/proptest/Cargo.toml
@@ -16,6 +17,7 @@ use proptest::prelude::*;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 mod energy_token_props;
+mod governance_weight_props;
 
 // ---------------------------------------------------------------------------
 // Helpers

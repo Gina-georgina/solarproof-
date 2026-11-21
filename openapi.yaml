@@ -27,8 +27,26 @@ info:
 
     ## Rate Limiting
 
-    Meter reading submissions are rate-limited to **60 requests per minute** per meter public key.
-    Exceeded requests receive `429 Too Many Requests` with a `Retry-After` header.
+    Rate limits are enforced per client. Exceeded requests receive `429 Too Many Requests`
+    with a `Retry-After` header and `X-RateLimit-*` headers (see below).
+
+    | Endpoint | Limit | Window | Scope |
+    | --- | --- | --- | --- |
+    | `POST /api/readings` | 10 requests | 60 seconds | Client IP |
+    | `GET /api/verify` (and `/api/verify/{id}`, `/api/v1/verify/{certificateId}`) | 30 requests | 60 seconds | Client IP |
+    | Meter reading submissions (`POST /api/readings`) | 60 requests | 60 seconds | Meter public key |
+
+    ### Rate limit headers
+
+    Every rate-limited response includes the following headers:
+
+    - `X-RateLimit-Limit` — Maximum number of requests permitted in the current window.
+    - `X-RateLimit-Remaining` — Number of requests remaining in the current window.
+    - `X-RateLimit-Reset` — Unix timestamp (seconds) at which the current window resets.
+    - `Retry-After` — Seconds to wait before retrying (present on `429` responses).
+
+    When a limit is exceeded, the response body is `{ "error": "Too Many Requests" }`.
+=======
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -260,6 +278,9 @@ paths:
               timestamp: 1745366400
               signature_hex: "4b3e9f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f09a"
               nonce: "unique-nonce-abc123"
+      x-rate-limit-limit: 10
+      x-rate-limit-window-seconds: 60
+      x-rate-limit-scope: ip
       responses:
         '201':
           description: Reading accepted, anchored, and certificates minted
@@ -292,18 +313,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '429':
-          description: Rate limit exceeded (60 req/min per meter)
-          headers:
-            Retry-After:
-              schema:
-                type: integer
-              description: Seconds to wait before retrying
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: Rate limit exceeded
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           description: Anchor or mint failed
           content:
@@ -353,8 +363,11 @@ paths:
       description: |
         Public endpoint — no authentication required.
         Accepts a certificate UUID, reading hash (64-char hex), or mint transaction hash.
-        Results are cached for 60 seconds.
+        Results are cached for 60 seconds. Rate limited to 30 requests per minute per IP.
       security: []
+      x-rate-limit-limit: 30
+      x-rate-limit-window-seconds: 60
+      x-rate-limit-scope: ip
       parameters:
         - name: id
           in: query
@@ -389,6 +402,8 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: Certificate not found
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /api/verify/{id}:
     get:
@@ -398,7 +413,11 @@ paths:
       description: |
         Identical to `GET /api/verify?id=` but accepts the identifier as a
         path segment. Useful for REST-style integrations.
+        Rate limited to 30 requests per minute per IP.
       security: []
+      x-rate-limit-limit: 30
+      x-rate-limit-window-seconds: 60
+      x-rate-limit-scope: ip
       parameters:
         - name: id
           in: path
@@ -425,6 +444,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /api/v1/verify/{certificateId}:
     get:
@@ -437,8 +458,11 @@ paths:
         Accepts a certificate UUID, reading hash (64-char hex), or mint transaction hash
         as the `certificateId` path parameter.
 
-        Results are cached for 60 seconds. Rate limited to 60 requests per minute per IP.
+        Results are cached for 60 seconds. Rate limited to 30 requests per minute per IP.
       security: []
+      x-rate-limit-limit: 30
+      x-rate-limit-window-seconds: 60
+      x-rate-limit-scope: ip
       parameters:
         - name: certificateId
           in: path
@@ -489,18 +513,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
-          description: Rate limit exceeded
-          headers:
-            Retry-After:
-              schema:
-                type: integer
-              description: Seconds to wait before retrying
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: Too Many Requests
+          $ref: '#/components/responses/TooManyRequests'
 
   /api/certificates:
     get:
@@ -1112,6 +1125,35 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+          example: 42
+        X-RateLimit-Limit:
+          description: Maximum number of requests permitted in the current window
+          schema:
+            type: integer
+          example: 10
+        X-RateLimit-Remaining:
+          description: Number of requests remaining in the current window
+          schema:
+            type: integer
+          example: 0
+        X-RateLimit-Reset:
+          description: Unix timestamp (seconds) at which the current window resets
+          schema:
+            type: integer
+          example: 1745366442
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Too Many Requests
 
   schemas:
     # ── Auth ──────────────────────────────────────────────────────────────────
