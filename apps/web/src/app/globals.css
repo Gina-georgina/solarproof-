@@ -2,6 +2,38 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ---------------------------------------------------------------------------
+   Color-blind-safe chart palette (issue #243)
+   ---------------------------------------------------------------------------
+   Based on the Okabe-Ito palette, which remains distinguishable under
+   deuteranopia, protanopia and tritanopia simulations (Coblis / Sim
+   Daltonism). Four series colors are exposed as CSS custom properties and
+   mirrored as Tailwind theme tokens (bg-chart-1, text-chart-2, ...).
+   Pattern fills (see the SVG <pattern> defs in DashboardChart) act as a
+   secondary differentiator so series never rely on color alone. */
+
+:root {
+  --color-chart-1: #0072b2; /* blue */
+  --color-chart-2: #e69f00; /* orange */
+  --color-chart-3: #009e73; /* bluish green */
+  --color-chart-4: #cc79a7; /* reddish purple */
+  --color-chart-5: #56b4e9; /* sky blue */
+  --color-chart-6: #d55e00; /* vermillion */
+  --color-chart-7: #f0e442; /* yellow */
+  --color-chart-8: #000000; /* black */
+}
+
+@theme inline {
+  --color-chart-1: var(--color-chart-1);
+  --color-chart-2: var(--color-chart-2);
+  --color-chart-3: var(--color-chart-3);
+  --color-chart-4: var(--color-chart-4);
+  --color-chart-5: var(--color-chart-5);
+  --color-chart-6: var(--color-chart-6);
+  --color-chart-7: var(--color-chart-7);
+  --color-chart-8: var(--color-chart-8);
+}
+
 /* Ensure a visible focus ring on any element that receives keyboard focus
    but doesn't already define one via Tailwind focus: utilities. */
 :focus-visible {
@@ -74,5 +106,99 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Print stylesheet — certificate detail page (issue #246)
+   ---------------------------------------------------------------------------
+   Operators print certificates for physical audit files. Hide chrome
+   (navigation, sidebars, filters, action buttons) and let the certificate
+   data fill the printable area. Elements opt out via `.no-print` or
+   `[data-print-hide]`; the certificate body opts in via `.print-certificate`. */
+
+@media print {
+  /* Hide navigation, sidebars, filters and action buttons. */
+  nav,
+  aside,
+  header nav,
+  footer,
+  .no-print,
+  [data-print-hide],
+  [role="navigation"],
+  [role="complementary"],
+  [data-print-hide="true"] {
+    display: none !important;
+  }
+
+  /* Force black-on-white for legibility and ink economy. */
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    background-image: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    color: #000000 !important;
+    border-color: #000000 !important;
+  }
+
+  /* Expand the certificate content to fill the printable area. */
+  .print-certificate,
+  .print-certificate * {
+    color: #000000 !important;
+  }
+
+  .print-certificate {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .print-certificate a[href]::after {
+    content: "";
+  }
+
+  /* QR code must render at a minimum 2cm × 2cm in print. */
+  .print-qr,
+  .print-certificate [data-print-qr] {
+    display: block !important;
+    width: 2cm !important;
+    height: 2cm !important;
+    min-width: 2cm !important;
+    min-height: 2cm !important;
+    max-width: 2cm !important;
+    max-height: 2cm !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .print-qr svg,
+  .print-qr img,
+  .print-certificate [data-print-qr] svg,
+  .print-certificate [data-print-qr] img {
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  /* Avoid splitting certificate blocks across pages. */
+  .print-certificate section,
+  .print-certificate table,
+  .print-certificate tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 1.5cm;
   }
 }
