@@ -88,6 +88,52 @@ _Update this table after each significant infrastructure change or release._
 - **Error rate < 5 %** — the server is not shedding load under pressure.
 - If P95 exceeds the threshold, investigate: Supabase connection pool saturation, Stellar RPC latency, or Next.js cold starts.
 
+## Multi-region latency benchmarks
+
+> Issue #708 · Cooperative operators in Africa and Southeast Asia previously saw > 500 ms latency against the single-region (`iad1`) deployment.
+
+### Target regions
+
+| Vercel region | Serves | Rationale |
+|---|---|---|
+| `iad1` (Washington, D.C.) | US, default/fallback | Primary Supabase DB region; lowest latency for US operators |
+| `fra1` (Frankfurt) | Africa, Europe, Middle East | Closest edge region to African operators; low RTT to EU |
+| `sin1` (Singapore) | Southeast Asia, Oceania | Closest edge region to SEA operators |
+
+### Route → region pinning
+
+API routes that touch Supabase are pinned to the region nearest the DB replica they read/write. Routes without DB access run at the edge (default multi-region).
+
+| Route | Pinned region | Why |
+|---|---|---|
+| `POST /api/readings` | `iad1` | Writes to primary Supabase DB; must stay near the write primary to avoid cross-region replication lag |
+| `GET /api/readings` | `fra1`, `sin1` (read replicas) | Read-only; served from nearest read replica |
+| `GET /api/meters` | `fra1`, `sin1` (read replicas) | Read-only; served from nearest read replica |
+| `POST /api/meters` | `iad1` | Writes to primary Supabase DB |
+| `GET /api/health` | edge (all regions) | No DB access |
+
+Configuration lives in `vercel.json` (`regions` + per-route `functions` region overrides) and is read by the existing `deploy-production.yml` pipeline without modification.
+
+### Measured latency per region
+
+> Captured with the k6 script above, 100 VUs, 60 s, against the multi-region production deployment.
+
+| Route | Region | p50 | p95 | Threshold | Pass? |
+|---|---|---|---|---|---|
+| `POST /api/readings` | `iad1` | — ms | — ms | < 2 000 ms | — |
+| `POST /api/readings` | `fra1` | — ms | — ms | < 2 000 ms | — |
+| `POST /api/readings` | `sin1` | — ms | — ms | < 2 000 ms | — |
+| `GET /api/readings` | `fra1` | — ms | — ms | < 2 000 ms | — |
+| `GET /api/readings` | `sin1` | — ms | — ms | < 2 000 ms | — |
+| `GET /api/meters` | `fra1` | — ms | — ms | < 2 000 ms | — |
+| `GET /api/meters` | `sin1` | — ms | — ms | < 2 000 ms | — |
+
+_Update this table after each region or replica change._
+
+### Deployment pipeline impact
+
+`deploy-production.yml` requires **no changes**: region configuration is declarative in `vercel.json` and applied by the existing Vercel deploy step. The pipeline remains single-workflow, single-promotion; multi-region is a deployment target property, not a pipeline stage.
+
 ## CI integration
 
 The load test runs nightly at 02:00 UTC against staging via `.github/workflows/load-test.yml`.

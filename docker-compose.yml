@@ -29,6 +29,32 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+        labels: "service"
+        env: "NODE_ENV"
+
+  log-shipper:
+    image: fluent/fluent-bit:3.1
+    profiles:
+      - logging
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_started
+    environment:
+      - LOG_SHIPPER_ENDPOINT=${LOG_SHIPPER_ENDPOINT:-}
+      - LOG_SHIPPER_TOKEN=${LOG_SHIPPER_TOKEN:-}
+      - LOG_SHIPPER_BACKEND=${LOG_SHIPPER_BACKEND:-loki}
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./infra/logging/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./infra/logging/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+    command: ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.conf"]
 
   supabase-db:
     image: supabase/postgres:15.1.0.147

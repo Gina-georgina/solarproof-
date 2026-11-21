@@ -28,21 +28,48 @@ export async function register() {
   const { NodeSDK } = await import('@opentelemetry/sdk-node')
   const { OTLPTraceExporter } = await import('@opentelemetry/exporter-trace-otlp-http')
   const { resourceFromAttributes } = await import('@opentelemetry/resources')
-  const { SimpleSpanProcessor } = await import('@opentelemetry/sdk-trace-node')
+  const { BatchSpanProcessor, TraceIdRatioBasedSampler } = await import('@opentelemetry/sdk-trace-node')
   const { HttpInstrumentation } = await import('@opentelemetry/instrumentation-http')
   const { FetchInstrumentation } = await import('@opentelemetry/instrumentation-fetch')
+  const { PgInstrumentation } = await import('@opentelemetry/instrumentation-pg')
+  const { IORedisInstrumentation } = await import('@opentelemetry/instrumentation-ioredis')
+  const { UndiciInstrumentation } = await import('@opentelemetry/instrumentation-undici')
 
-  const exporter = new OTLPTraceExporter()
+  // Sampling: 100% in staging/development, 10% in production.
+  const sampleRatio =
+    process.env.NODE_ENV === 'production'
+      ? Number(process.env.OTEL_TRACES_SAMPLER_ARG ?? 0.1)
+      : 1.0
+
+  // OTLP endpoint/headers are read from OTEL_EXPORTER_OTLP_ENDPOINT and
+  // OTEL_EXPORTER_OTLP_HEADERS by the exporter's default config. Passing them
+  // explicitly keeps behaviour predictable across Grafana Tempo and Honeycomb.
+  const exporter = new OTLPTraceExporter({
+    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    headers: process.env.OTEL_EXPORTER_OTLP_HEADERS
+      ? Object.fromEntries(
+          process.env.OTEL_EXPORTER_OTLP_HEADERS.split(',')
+            .map((pair) => pair.split('='))
+            .filter((entry): entry is [string, string] => entry.length === 2)
+            .map(([k, v]) => [k.trim(), v.trim()]),
+        )
+      : undefined,
+  })
 
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({
       'service.name': process.env.OTEL_SERVICE_NAME ?? 'solarproof-api',
       'service.version': process.env.npm_package_version ?? '1.0.0',
+      'deployment.environment': process.env.NODE_ENV ?? 'development',
     }),
-    spanProcessor: new SimpleSpanProcessor(exporter as never),
+    sampler: new TraceIdRatioBasedSampler(sampleRatio),
+    spanProcessor: new BatchSpanProcessor(exporter as never),
     instrumentations: [
       new HttpInstrumentation(),
       new FetchInstrumentation(),
+      new UndiciInstrumentation(),
+      new PgInstrumentation(),
+      new IORedisInstrumentation(),
     ],
   })
 

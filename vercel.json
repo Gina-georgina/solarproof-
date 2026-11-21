@@ -5,5 +5,21 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "env": {
     "NEXT_PUBLIC_STELLAR_NETWORK": "testnet"
+  },
+  "regions": ["iad1", "fra1", "sin1"],
+  "functionFailoverRegions": ["iad1", "fra1", "sin1"],
+  "functions": {
+    "apps/web/app/api/**/*.ts": {
+      "regions": ["iad1", "fra1", "sin1"],
+      "maxDuration": 30
+    },
+    "apps/web/app/api/**/*.tsx": {
+      "regions": ["iad1", "fra1", "sin1"],
+      "maxDuration": 30
+    },
+    "apps/web/pages/api/**/*.ts": {
+      "regions": ["iad1", "fra1", "sin1"],
+      "maxDuration": 30
+    }
   }
 }
