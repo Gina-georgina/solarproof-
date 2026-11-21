@@ -788,6 +788,158 @@ Identical to `GET /api/verify` — see [that endpoint](#get-apiverify). Also ava
 
 ---
 
+## Marketplace (OTC transfers)
+
+The `/marketplace` page lets cooperatives list certificates for peer-to-peer (OTC) transfer. Listings are stored **off-chain**; the actual ownership change is performed by the existing `POST /api/v1/certificates/:id/transfer` endpoint, and each transfer is recorded in `transfer_history`.
+
+> **Scope (v1):** Escrow and payment settlement are **out of scope**. Buyers and sellers settle payment manually off-platform. The marketplace only advertises listings and initiates the on-chain transfer.
+
+### GET /api/v1/marketplace/listings
+
+List certificates currently available for transfer.
+
+**Auth:** Not required (public endpoint).
+
+**Query parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `integer` | `20` | Page size (max 100) |
+| `cursor` | `string` | — | Pagination cursor from previous response |
+| `cooperative_id` | `string` (UUID) | — | Filter by seller cooperative |
+
+**Example request**
+
+```http
+GET /api/v1/marketplace/listings?limit=10
+```
+
+**200 response body**
+
+```json
+{
+  "data": [
+    {
+      "id": "listing-uuid",
+      "certificate_id": "cert-uuid",
+      "seller_cooperative_id": "coop-uuid",
+      "seller_name": "Sunshine Coop",
+      "kwh": 12.5,
+      "asking_price": 25.0,
+      "currency": "EUR",
+      "status": "open",
+      "created_at": "2026-04-23T10:00:00.000Z"
+    }
+  ],
+  "next_cursor": "2026-04-22T08:00:00.000Z"
+}
+```
+
+**Responses**
+
+| Status | Meaning |
+|---|---|
+| `200 OK` | Listing page |
+| `400 Bad Request` | Invalid query params |
+| `500 Internal Server Error` | Database error |
+
+---
+
+### POST /api/v1/marketplace/listings
+
+Create a listing for one of the authenticated cooperative's certificates.
+
+**Auth:** Bearer JWT required. The certificate must belong to the caller's cooperative.
+
+**Request body**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `certificate_id` | `string` (UUID) | ✅ | Certificate to list |
+| `asking_price` | `number` | ✅ | Asking price (positive, off-chain) |
+| `currency` | `string` | ✗ | Currency code (default `EUR`) |
+
+**Example request**
+
+```http
+POST /api/v1/marketplace/listings
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "certificate_id": "cert-uuid",
+  "asking_price": 25.0,
+  "currency": "EUR"
+}
+```
+
+**Responses**
+
+| Status | Body |
+|---|---|
+| `201 Created` | Listing object |
+| `400 Bad Request` | `{ "error": { "fieldErrors": {...} } }` |
+| `401 Unauthorized` | `{ "error": "Unauthorized" }` |
+| `404 Not Found` | `{ "error": "Certificate not found" }` |
+| `409 Conflict` | `{ "error": "Certificate already listed" }` |
+| `500 Internal Server Error` | `{ "error": "<message>" }` |
+
+---
+
+### DELETE /api/v1/marketplace/listings/:id
+
+Cancel an open listing. Only the seller cooperative may cancel.
+
+**Auth:** Bearer JWT required.
+
+**Responses**
+
+| Status | Body |
+|---|---|
+| `200 OK` | `{ "success": true }` |
+| `401 Unauthorized` | `{ "error": "Unauthorized" }` |
+| `403 Forbidden` | `{ "error": "Not the listing owner" }` |
+| `404 Not Found` | `{ "error": "Listing not found" }` |
+
+---
+
+### POST /api/v1/marketplace/listings/:id/buy
+
+Initiate a transfer for a listed certificate. This is a thin wrapper around `POST /api/v1/certificates/:id/transfer`; the resulting transfer is recorded in `transfer_history` and the listing is marked `sold`.
+
+**Auth:** Bearer JWT required.
+
+**Request body**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `recipient_cooperative_id` | `string` (UUID) | ✅ | Buyer cooperative (must match the caller) |
+
+**Example request**
+
+```http
+POST /api/v1/marketplace/listings/listing-uuid/buy
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{ "recipient_cooperative_id": "buyer-coop-uuid" }
+```
+
+**Responses**
+
+| Status | Body |
+|---|---|
+| `200 OK` | `{ "success": true, "transfer_id": "uuid" }` |
+| `400 Bad Request` | `{ "error": { "fieldErrors": {...} } }` |
+| `401 Unauthorized` | `{ "error": "Unauthorized" }` |
+| `404 Not Found` | `{ "error": "Listing not found" }` |
+| `409 Conflict` | `{ "error": "Listing is no longer open" }` |
+| `500 Internal Server Error` | `{ "error": "<message>" }` |
+
+> **Note:** Payment is settled manually between the parties. No escrow or funds movement occurs through the API in v1.
+
+---
+
 ### GET /api/v1/cooperative/me
 
 Return the authenticated user's cooperative profile.
@@ -820,6 +972,46 @@ Authorization: Bearer <jwt>
 |---|---|
 | `200 OK` | Cooperative object |
 | `401 Unauthorized` | `{ "error": "Unauthorized" }` |
+| `500 Internal Server Error` | `{ "error": "<message>" }` |
+
+---
+
+### GET /api/v1/cooperatives/:id
+
+Return the **public** cooperative profile used by the `/cooperatives/[id]` page. This endpoint is public and exposes no PII — `admin_address`, operator emails, and other private fields are never included.
+
+**Auth:** Not required (public endpoint).
+
+**Path parameter:** `id` — cooperative UUID.
+
+**Example request**
+
+```http
+GET /api/v1/cooperatives/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+**200 response body**
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "name": "Sunshine Coop",
+  "location": "Lisbon, Portugal",
+  "total_kwh_produced": 4210.5,
+  "active_meters": 5,
+  "certificates_issued": 4210,
+  "created_at": "2026-01-01T00:00:00.000Z"
+}
+```
+
+> **Privacy:** The public profile intentionally omits `admin_address`, operator email addresses, and any other personally identifiable information.
+
+**Responses**
+
+| Status | Body |
+|---|---|
+| `200 OK` | Public cooperative profile object |
+| `404 Not Found` | `{ "error": "Cooperative not found" }` |
 | `500 Internal Server Error` | `{ "error": "<message>" }` |
 
 ---

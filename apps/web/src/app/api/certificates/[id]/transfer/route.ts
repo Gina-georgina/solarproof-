@@ -131,11 +131,43 @@ export async function POST(
     return NextResponse.json({ error: message }, { status: 500 })
   }
 
+  // ── Marketplace listing settlement ────────────────────────────────────────
+  // If this certificate was listed on the OTC marketplace, mark the active
+  // listing as completed now that the transfer has settled on-chain.
+  // Escrow and payment are out-of-scope for v1 (manual settlement).
+  const { data: activeListing } = await db
+    .from('marketplace_listings')
+    .select('id, asking_price')
+    .eq('certificate_id', id)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (activeListing) {
+    const { error: listingError } = await db
+      .from('marketplace_listings')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', activeListing.id)
+      .eq('status', 'active')
+
+    if (listingError) {
+      // The on-chain transfer already succeeded; surface the settlement failure
+      // in the audit trail rather than failing the request.
+      console.error('Failed to complete marketplace listing', listingError)
+    }
+  }
+
   await auditLog(req, {
     operator_id: from_address,
     action: 'certificate.transfer',
     resource_id: id,
-    metadata: { from_address, to_address, transfer_tx_hash: transferTxHash },
+    metadata: {
+      from_address,
+      to_address,
+      transfer_tx_hash: transferTxHash,
+      ...(activeListing
+        ? { marketplace_listing_id: activeListing.id, asking_price: activeListing.asking_price }
+        : {}),
+    },
   })
 
   void fireWebhook(cert.cooperative_id, 'certificate.transferred', {

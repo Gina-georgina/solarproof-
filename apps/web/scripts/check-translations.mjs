@@ -3,13 +3,13 @@
  * Translation coverage checker.
  *
  * Recursively compares the keys in messages/en.json (source) against
- * messages/es.json (target) and reports:
- *   - missing keys (present in EN, absent in ES)
- *   - extra keys   (present in ES, absent in EN)
+ * each target locale (default: es, pt-BR) and reports:
+ *   - missing keys (present in EN, absent in target)
+ *   - extra keys   (present in target, absent in EN)
  *
- * Exits non-zero when ES coverage is below 100%.
+ * Exits non-zero when any target locale's coverage is below 100%.
  *
- * Usage: node scripts/check-translations.mjs [--source en] [--target es]
+ * Usage: node scripts/check-translations.mjs [--source en] [--target es] [--target pt-BR]
  */
 
 import { readFileSync } from "node:fs";
@@ -19,19 +19,24 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MESSAGES_DIR = resolve(__dirname, "..", "messages");
 
+const DEFAULT_TARGETS = ["es", "pt-BR"];
+
 function parseArgs(argv) {
-  const args = { source: "en", target: "es" };
+  const args = { source: "en", targets: [] };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--source" && argv[i + 1]) {
       args.source = argv[++i];
     } else if (arg === "--target" && argv[i + 1]) {
-      args.target = argv[++i];
+      args.targets.push(argv[++i]);
     } else if (arg.startsWith("--source=")) {
       args.source = arg.slice("--source=".length);
     } else if (arg.startsWith("--target=")) {
-      args.target = arg.slice("--target=".length);
+      args.targets.push(arg.slice("--target=".length));
     }
+  }
+  if (args.targets.length === 0) {
+    args.targets = [...DEFAULT_TARGETS];
   }
   return args;
 }
@@ -83,16 +88,13 @@ function collectKeys(obj, prefix = "", out = new Set()) {
   return out;
 }
 
-function main() {
-  const { source, target } = parseArgs(process.argv.slice(2));
-
-  const sourcePath = resolve(MESSAGES_DIR, `${source}.json`);
+/**
+ * Check a single target locale against the source keys.
+ * Returns true when the target is fully in sync (no missing or extra keys).
+ */
+function checkTarget(source, sourceKeys, target) {
   const targetPath = resolve(MESSAGES_DIR, `${target}.json`);
-
-  const sourceJson = loadJson(sourcePath);
   const targetJson = loadJson(targetPath);
-
-  const sourceKeys = collectKeys(sourceJson);
   const targetKeys = collectKeys(targetJson);
 
   const missing = [...sourceKeys].filter((k) => !targetKeys.has(k)).sort();
@@ -123,20 +125,40 @@ function main() {
 
   if (missing.length === 0 && extra.length === 0) {
     console.log(`\n✓ ${target}.json is fully in sync with ${source}.json.`);
-    process.exit(0);
+    return true;
   }
 
   if (coverage < 100) {
     console.error(
       `\n✗ Translation coverage for "${target}" is ${coverage.toFixed(2)}%, below the required 100%.`
     );
-    process.exit(1);
+    return false;
   }
 
   // Coverage is 100% but there are extra keys — warn but do not fail.
   console.warn(
     `\n⚠ ${target}.json has extra keys not present in ${source}.json. Coverage is 100%.`
   );
+  return true;
+}
+
+function main() {
+  const { source, targets } = parseArgs(process.argv.slice(2));
+
+  const sourcePath = resolve(MESSAGES_DIR, `${source}.json`);
+  const sourceJson = loadJson(sourcePath);
+  const sourceKeys = collectKeys(sourceJson);
+
+  let allOk = true;
+  for (const target of targets) {
+    console.log("");
+    const ok = checkTarget(source, sourceKeys, target);
+    if (!ok) allOk = false;
+  }
+
+  if (!allOk) {
+    process.exit(1);
+  }
   process.exit(0);
 }
 

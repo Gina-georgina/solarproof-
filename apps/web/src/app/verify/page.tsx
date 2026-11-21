@@ -17,6 +17,10 @@ interface ChainOfCustody {
     retired_at: string | null
     retired_by: string | null
   }
+  cooperative?: {
+    id: string
+    name: string
+  } | null
   on_chain: {
     anchor_tx: string
     anchor_explorer: string
@@ -342,6 +346,18 @@ export default function VerifyPage() {
               </button>
             )}
           </div>
+
+          {result?.cooperative?.id && (
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              Produced by{' '}
+              <a
+                href={`/cooperatives/${encodeURIComponent(result.cooperative.id)}`}
+                className="font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {result.cooperative.name || 'this cooperative'}
+              </a>
+            </p>
+          )}
 
           {/* Stepper */}
           <ol aria-label="Proof verification steps" className="relative space-y-0">

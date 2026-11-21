@@ -19,6 +19,18 @@ export const env = createEnv({
     READINGS_RATE_LIMIT_PER_MINUTE: z.string().optional(),
     READINGS_RATE_LIMIT_WINDOW_SECONDS: z.string().optional(),
     WEBHOOK_SECRET: z.string().min(16).optional(),
+    // EVM/Polygon certificate NFT minting (optional, opt-in per cooperative)
+    EVM_NFT_MINTING_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+    EVM_RPC_URL: z.string().url().optional(),
+    EVM_PRIVATE_KEY: z.string().min(1).optional(),
+    EVM_CERTIFICATE_NFT_ADDRESS: z
+      .string()
+      .regex(/^0x[a-fA-F0-9]{40}$/, 'Must be a valid EVM address')
+      .optional(),
+    EVM_CHAIN_ID: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
@@ -47,5 +59,10 @@ export const env = createEnv({
     READINGS_RATE_LIMIT_PER_MINUTE: process.env.READINGS_RATE_LIMIT_PER_MINUTE,
     READINGS_RATE_LIMIT_WINDOW_SECONDS: process.env.READINGS_RATE_LIMIT_WINDOW_SECONDS,
     WEBHOOK_SECRET: process.env.WEBHOOK_SECRET,
+    EVM_NFT_MINTING_ENABLED: process.env.EVM_NFT_MINTING_ENABLED,
+    EVM_RPC_URL: process.env.EVM_RPC_URL,
+    EVM_PRIVATE_KEY: process.env.EVM_PRIVATE_KEY,
+    EVM_CERTIFICATE_NFT_ADDRESS: process.env.EVM_CERTIFICATE_NFT_ADDRESS,
+    EVM_CHAIN_ID: process.env.EVM_CHAIN_ID,
   },
 })

@@ -25,6 +25,52 @@ jobs:
           echo "::error::Direct push to main cannot trigger a mainnet deploy. Use workflow_dispatch and obtain approver sign-off."
           exit 1
 
+  # Deploys the ERC-721 certificate NFT contract to Polygon (EVM).
+  # Mainnet deploys require workflow_dispatch and approval via the 'mainnet' GitHub Environment.
+  deploy-evm-nft:
+    name: Deploy Certificate NFT (EVM)
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.network || 'testnet' }}
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.event.inputs.network != 'mainnet')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm EVM mainnet deployment
+        if: github.event.inputs.network == 'mainnet'
+        run: |
+          echo "::warning::Deploying Certificate NFT to POLYGON MAINNET. Approved by a required reviewer via the 'mainnet' GitHub Environment."
+          echo "Deployer: ${{ github.actor }}"
+          echo "Triggered at: ${{ github.event.head_commit.timestamp || github.event.created_at }}"
+
+      - name: Setup Node for EVM contract
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install JavaScript dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Deploy certificate NFT contract
+        id: deploy-evm-nft
+        run: |
+          echo "contract_address=$(pnpm exec node scripts/deploy-certificate-nft.mjs \
+            --network ${{ github.event.inputs.network || 'testnet' }})" >> $GITHUB_OUTPUT
+        env:
+          EVM_DEPLOYER_PRIVATE_KEY: ${{ secrets.EVM_DEPLOYER_PRIVATE_KEY }}
+          POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL }}
+          POLYGON_AMOY_RPC_URL: ${{ secrets.POLYGON_AMOY_RPC_URL }}
+
+      - name: Record deployed address
+        run: |
+          echo "Certificate NFT deployed at: ${{ steps.deploy-evm-nft.outputs.contract_address }}"
+          echo "### Certificate NFT (EVM)" >> $GITHUB_STEP_SUMMARY
+          echo "- Network: ${{ github.event.inputs.network || 'testnet' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Address: \`${{ steps.deploy-evm-nft.outputs.contract_address }}\`" >> $GITHUB_STEP_SUMMARY
+
   deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest

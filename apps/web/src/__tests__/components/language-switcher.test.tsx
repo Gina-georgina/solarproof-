@@ -38,6 +38,24 @@ describe('LanguageSwitcher', () => {
     expect(screen.getByRole('status').textContent).toBe('Language changed to Español')
   })
 
+  it('renders and persists the Portuguese (Brazil) locale', async () => {
+    fetchMock.mockResolvedValue({ ok: true })
+    render(<LanguageSwitcher current="en" />)
+
+    const option = screen.getByRole('option', { name: 'Português (BR)' })
+    expect((option as HTMLOptionElement).value).toBe('pt-BR')
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'pt-BR' } })
+
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce())
+    expect(fetchMock).toHaveBeenCalledWith('/api/locale', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locale: 'pt-BR' }),
+    })
+    expect(screen.getByRole('status').textContent).toBe('Language changed to Português (BR)')
+  })
+
   it('announces an API failure without refreshing', async () => {
     fetchMock.mockResolvedValue({ ok: false })
     render(<LanguageSwitcher current="en" />)

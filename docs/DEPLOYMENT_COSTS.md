@@ -241,6 +241,88 @@ Actual fees depend on network state. For precise costs, query the Stellar ledger
 
 ---
 
+## Polygon / EVM Certificate NFT Minting Costs
+
+In addition to the Stellar SKWH token, cooperatives can optionally mint an ERC-721 certificate NFT on Polygon (EVM). This section documents the contract, the opt-in flow, and the gas costs involved.
+
+### ERC-721 Contract
+
+- **Contract:** `CertificateNFT` (ERC-721, Solidity ^0.8.20)
+- **Network:** Polygon mainnet (chain ID `137`); Polygon Amoy testnet (chain ID `80002`) for staging
+- **Metadata URI:** `https://<app-domain>/verify/<certificate_id>` — the same verification page used for Stellar certificates
+- **Mint function:** `mintCertificate(address to, string certificateId)` — restricted to the bridge minter role
+
+### Per-Cooperative Opt-In
+
+EVM minting is disabled by default and configured per cooperative:
+
+```json
+{
+  "cooperative_id": "coop-123",
+  "evm_nft": {
+    "enabled": true,
+    "chain": "polygon",
+    "contract_address": "0x...",
+    "recipient_address": "0x..."
+  }
+}
+```
+
+- `enabled` — master switch; when `false` no EVM mint is attempted
+- `recipient_address` — buyer/cooperative wallet that receives the NFT
+- If `enabled` is `true` but `recipient_address` is missing, the bridge logs a warning and skips the EVM mint (Stellar issuance still succeeds)
+
+### Bridge Flow
+
+On certificate issuance the bridge microservice:
+
+1. Issues the SKWH token on Stellar (existing flow, unchanged)
+2. Checks the cooperative's `evm_nft.enabled` flag
+3. If enabled, estimates gas via `eth_estimateGas` and submits `mintCertificate` through the configured minter key
+4. Waits for the transaction receipt and records the `tokenId` and `txHash`
+5. Emits an `evm_nft_minted` event; failures are retried with exponential backoff and never block Stellar issuance
+
+### Estimated Gas Costs
+
+| Operation | Gas (approx.) | Notes |
+|-----------|---------------|-------|
+| `mintCertificate` | 80,000 – 120,000 | Includes ERC-721 mint + metadata event |
+| `setApprovalForAll` (one-time) | ~46,000 | Only if operator approval is required |
+| Failed/retried mint | 21,000+ | Base transaction cost on revert |
+
+**Approximate USD cost per mint** (assuming ~30 gwei and MATIC ≈ $0.50 — update with current values):
+
+```
+120,000 gas × 30 gwei = 0.0036 MATIC ≈ $0.0018 per certificate
+```
+
+At 1,000 certificates/month this is roughly **$1.80/month** in gas — negligible compared to Stellar fees, but it should be monitored like any other cost.
+
+### Operational Runbook
+
+1. **Deploy the contract** (once per network):
+   ```bash
+   cd apps/contracts-evm
+   npx hardhat run scripts/deploy.ts --network polygon
+   ```
+   Record the deployed address in the cooperative config.
+
+2. **Fund the minter wallet** with a small MATIC balance (e.g. 1 MATIC covers thousands of mints at current prices). Set up a low-balance alert.
+
+3. **Enable per cooperative** by setting `evm_nft.enabled: true` and the `recipient_address` in the cooperative config.
+
+4. **Verify a mint** after issuance:
+   ```bash
+   npx hardhat run scripts/verify-mint.ts --network polygon --certificate <certificate_id>
+   ```
+   Confirm the `tokenURI` resolves to `/verify/<certificate_id>`.
+
+5. **Monitor** the `evm_nft_minted` and `evm_nft_failed` events; investigate repeated failures (insufficient gas, RPC issues, or revoked minter role).
+
+6. **Rotate the minter key** if compromised: revoke the old role, grant the new address, and update the bridge secret.
+
+---
+
 ## Integration with Monitoring Services
 
 To send costs to external monitoring services:
