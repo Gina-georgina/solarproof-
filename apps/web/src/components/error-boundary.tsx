@@ -23,10 +23,40 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    Sentry.captureException(error, { extra: { componentStack: info.componentStack } })
+    Sentry.captureException(error, {
+      extra: { componentStack: info.componentStack },
+      tags: { source: 'ErrorBoundary' },
+    })
   }
 
   reset = () => this.setState({ error: null })
+
+  private buildIssueUrl(error: Error): string {
+    const title = `[Web] ${error.name || 'Error'}: ${error.message || 'Unexpected error'}`.slice(0, 120)
+    const body = [
+      '### What happened?',
+      '',
+      '<!-- Describe what you were doing when the error occurred. -->',
+      '',
+      '### Error message',
+      '',
+      '```',
+      error.message || 'Unknown error',
+      '```',
+      '',
+      '### Stack trace',
+      '',
+      '```',
+      error.stack || 'No stack trace available',
+      '```',
+      '',
+      `_Reported from the web app on ${new Date().toISOString()}_`,
+    ].join('\n')
+
+    const params = new URLSearchParams({ title, body, labels: 'bug' })
+    return `https://github.com/${process.env.NEXT_PUBLIC_GITHUB_REPO ?? 'owner/repo'}/issues/new?${params.toString()}`
+  }
+=======
 
   render() {
     if (!this.state.error) return this.props.children
@@ -61,21 +91,25 @@ export class ErrorBoundary extends React.Component<Props, State> {
           {this.props.label ? `${this.props.label} failed to load.` : 'Something went wrong'}
         </h2>
         <p className="max-w-md text-gray-500 dark:text-gray-400">
-          An unexpected error occurred. You can try again or reload the page.
+          {this.props.label
+            ? `We couldn't load ${this.props.label}. Your other work is safe — try again, and if the problem persists, let us know.`
+            : "We hit an unexpected error. Your other work is safe — try again, and if the problem persists, let us know."}
         </p>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap items-center justify-center gap-3">
           <button
             onClick={this.reset}
             className="rounded-lg bg-yellow-400 px-5 py-2.5 font-semibold text-gray-900 hover:bg-yellow-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2"
           >
-            Try again
+            Retry
           </button>
-          <button
-            onClick={() => window.location.reload()}
+          <a
+            href={this.buildIssueUrl(this.state.error)}
+            target="_blank"
+            rel="noopener noreferrer"
             className="rounded-lg border border-gray-300 px-5 py-2.5 font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
           >
-            Reload page
-          </button>
+            Report Issue
+          </a>
         </div>
       </div>
     )

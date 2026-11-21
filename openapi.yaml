@@ -27,8 +27,26 @@ info:
 
     ## Rate Limiting
 
-    Meter reading submissions are rate-limited to **60 requests per minute** per meter public key.
-    Exceeded requests receive `429 Too Many Requests` with a `Retry-After` header.
+    Rate limits are enforced per client. Exceeded requests receive `429 Too Many Requests`
+    with a `Retry-After` header and `X-RateLimit-*` headers (see below).
+
+    | Endpoint | Limit | Window | Scope |
+    | --- | --- | --- | --- |
+    | `POST /api/readings` | 10 requests | 60 seconds | Client IP |
+    | `GET /api/verify` (and `/api/verify/{id}`, `/api/v1/verify/{certificateId}`) | 30 requests | 60 seconds | Client IP |
+    | Meter reading submissions (`POST /api/readings`) | 60 requests | 60 seconds | Meter public key |
+
+    ### Rate limit headers
+
+    Every rate-limited response includes the following headers:
+
+    - `X-RateLimit-Limit` — Maximum number of requests permitted in the current window.
+    - `X-RateLimit-Remaining` — Number of requests remaining in the current window.
+    - `X-RateLimit-Reset` — Unix timestamp (seconds) at which the current window resets.
+    - `Retry-After` — Seconds to wait before retrying (present on `429` responses).
+
+    When a limit is exceeded, the response body is `{ "error": "Too Many Requests" }`.
+=======
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -52,6 +70,10 @@ tags:
     description: Meter registration and management
   - name: verify
     description: Public certificate verification (no auth required)
+  - name: cooperatives
+    description: Public cooperative profiles (no auth required)
+  - name: marketplace
+    description: Operator-to-operator certificate transfer marketplace (OTC)
   - name: jobs
     description: Background job status polling
   - name: audit
@@ -256,6 +278,9 @@ paths:
               timestamp: 1745366400
               signature_hex: "4b3e9f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f09a"
               nonce: "unique-nonce-abc123"
+      x-rate-limit-limit: 10
+      x-rate-limit-window-seconds: 60
+      x-rate-limit-scope: ip
       responses:
         '201':
           description: Reading accepted, anchored, and certificates minted
@@ -288,18 +313,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '429':
-          description: Rate limit exceeded (60 req/min per meter)
-          headers:
-            Retry-After:
-              schema:
-                type: integer
-              description: Seconds to wait before retrying
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: Rate limit exceeded
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           description: Anchor or mint failed
           content:
@@ -349,8 +363,11 @@ paths:
       description: |
         Public endpoint — no authentication required.
         Accepts a certificate UUID, reading hash (64-char hex), or mint transaction hash.
-        Results are cached for 60 seconds.
+        Results are cached for 60 seconds. Rate limited to 30 requests per minute per IP.
       security: []
+      x-rate-limit-limit: 30
+      x-rate-limit-window-seconds: 60
+      x-rate-limit-scope: ip
       parameters:
         - name: id
           in: query
@@ -385,6 +402,8 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: Certificate not found
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /api/verify/{id}:
     get:
@@ -394,7 +413,11 @@ paths:
       description: |
         Identical to `GET /api/verify?id=` but accepts the identifier as a
         path segment. Useful for REST-style integrations.
+        Rate limited to 30 requests per minute per IP.
       security: []
+      x-rate-limit-limit: 30
+      x-rate-limit-window-seconds: 60
+      x-rate-limit-scope: ip
       parameters:
         - name: id
           in: path
@@ -421,6 +444,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /api/v1/verify/{certificateId}:
     get:
@@ -433,8 +458,11 @@ paths:
         Accepts a certificate UUID, reading hash (64-char hex), or mint transaction hash
         as the `certificateId` path parameter.
 
-        Results are cached for 60 seconds. Rate limited to 60 requests per minute per IP.
+        Results are cached for 60 seconds. Rate limited to 30 requests per minute per IP.
       security: []
+      x-rate-limit-limit: 30
+      x-rate-limit-window-seconds: 60
+      x-rate-limit-scope: ip
       parameters:
         - name: certificateId
           in: path
@@ -485,18 +513,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
-          description: Rate limit exceeded
-          headers:
-            Retry-After:
-              schema:
-                type: integer
-              description: Seconds to wait before retrying
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: Too Many Requests
+          $ref: '#/components/responses/TooManyRequests'
 
   /api/certificates:
     get:
@@ -563,6 +580,267 @@ paths:
                 $ref: '#/components/schemas/CertificateListResponse'
         '500':
           $ref: '#/components/responses/InternalError'
+
+  /api/v1/cooperatives/{id}:
+    get:
+      operationId: getCooperativeProfileV1
+      tags: [cooperatives]
+      summary: Public cooperative profile (v1)
+      description: |
+        Public endpoint — no authentication required.
+
+        Returns aggregate production statistics for a cooperative for use on its
+        public profile page. No personally identifiable information (PII) is
+        exposed: `admin_address`, operator email addresses, and other operator
+        contact details are never included in the response.
+
+        Results are cached for 60 seconds.
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Cooperative UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Public cooperative profile
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: public, max-age=60, stale-while-revalidate=30
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CooperativeProfile'
+              example:
+                id: c0e1f2a3-b4c5-6789-abcd-ef0123456789
+                name: Cooperativa Solar del Valle
+                location: Oaxaca, Mexico
+                total_kwh_produced: 128450.75
+                active_meters: 42
+                certificates_issued: 10234
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/cooperatives/{id}:
+    get:
+      operationId: getCooperativeProfile
+      tags: [cooperatives]
+      summary: Public cooperative profile
+      description: |
+        Public endpoint — no authentication required. Identical to
+        `GET /api/v1/cooperatives/{id}`.
+
+        Returns name, location, total kWh produced, active meters, and
+        certificates issued. No PII (no `admin_address`, no operator email)
+        is exposed.
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Cooperative UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Public cooperative profile
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: public, max-age=60, stale-while-revalidate=30
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CooperativeProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/marketplace/listings:
+    get:
+      operationId: listMarketplaceListings
+      tags: [marketplace]
+      summary: List certificates available for transfer
+      description: |
+        Returns certificates that sellers have listed for operator-to-operator
+        transfer (OTC). No authentication required to browse.
+
+        Escrow and payment are out of scope for v1 — settlement is manual and
+        off-chain. Buyers initiate the on-chain transfer via
+        `POST /api/certificates/{id}/transfer`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - name: cursor
+          in: query
+          description: Opaque cursor from `next_cursor` in a previous response
+          schema:
+            type: string
+        - name: cooperative_id
+          in: query
+          description: Filter by seller cooperative UUID
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: Filter by listing status
+          schema:
+            type: string
+            enum: [open, pending, completed, cancelled]
+      responses:
+        '200':
+          description: Paginated list of marketplace listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceListingListResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      operationId: createMarketplaceListing
+      tags: [marketplace]
+      summary: List a certificate for transfer at an asking price
+      description: |
+        Creates an off-chain listing for a certificate owned by the caller's
+        cooperative. The asking price is off-chain metadata only; no payment
+        is processed by the platform in v1.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMarketplaceListingRequest'
+      responses:
+        '201':
+          description: Listing created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceListing'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Certificate already listed or not owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/marketplace/listings/{id}:
+    get:
+      operationId: getMarketplaceListing
+      tags: [marketplace]
+      summary: Retrieve a single marketplace listing
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Listing record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceListing'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: cancelMarketplaceListing
+      tags: [marketplace]
+      summary: Cancel an open listing
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Listing cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceListing'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Listing is not open
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/certificates/{id}/transfer:
+    post:
+      operationId: transferCertificate
+      tags: [certificates]
+      summary: Transfer a certificate to another cooperative
+      description: |
+        Transfers ownership of a certificate to a recipient cooperative. When
+        the certificate was acquired through the marketplace, the transfer is
+        recorded in `transfer_history` and the associated listing is marked
+        `completed`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Certificate UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferRequest'
+      responses:
+        '200':
+          description: Certificate transferred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Certificate retired or already transferred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/certificates/{id}/retire:
     post:
@@ -847,6 +1125,35 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+          example: 42
+        X-RateLimit-Limit:
+          description: Maximum number of requests permitted in the current window
+          schema:
+            type: integer
+          example: 10
+        X-RateLimit-Remaining:
+          description: Number of requests remaining in the current window
+          schema:
+            type: integer
+          example: 0
+        X-RateLimit-Reset:
+          description: Unix timestamp (seconds) at which the current window resets
+          schema:
+            type: integer
+          example: 1745366442
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Too Many Requests
 
   schemas:
     # ── Auth ──────────────────────────────────────────────────────────────────
@@ -1171,6 +1478,131 @@ components:
                   format: date-time
                 verified:
                   type: boolean
+
+    # ── Cooperatives ──────────────────────────────────────────────────────────
+    CooperativeProfile:
+      type: object
+      description: |
+        Public cooperative profile. Contains aggregate statistics only — no PII
+        such as `admin_address` or operator email addresses.
+      required: [id, name, total_kwh_produced, active_meters, certificates_issued]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        location:
+          type: ['string', 'null']
+          description: Human-readable location (e.g. city/region)
+        total_kwh_produced:
+          type: number
+          description: Sum of all metered kWh produced by the cooperative
+        active_meters:
+          type: integer
+          description: Number of currently active meters
+        certificates_issued:
+          type: integer
+          description: Total number of certificates issued to the cooperative
+
+    # ── Marketplace ───────────────────────────────────────────────────────────
+    CreateMarketplaceListingRequest:
+      type: object
+      required: [certificate_id, asking_price]
+      properties:
+        certificate_id:
+          type: string
+          format: uuid
+        asking_price:
+          type: number
+          exclusiveMinimum: 0
+          description: Off-chain asking price (settlement is manual in v1)
+        currency:
+          type: string
+          default: USD
+          description: Currency of the asking price
+        note:
+          type: ['string', 'null']
+          maxLength: 500
+
+    MarketplaceListing:
+      type: object
+      required: [id, certificate_id, seller_cooperative_id, asking_price, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        certificate_id:
+          type: string
+          format: uuid
+        seller_cooperative_id:
+          type: string
+          format: uuid
+        seller_cooperative_name:
+          type: string
+        kwh:
+          type: number
+        asking_price:
+          type: number
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [open, pending, completed, cancelled]
+        note:
+          type: ['string', 'null']
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    MarketplaceListingListResponse:
+      type: object
+      required: [data, next_cursor, has_more]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceListing'
+        next_cursor:
+          type: ['string', 'null']
+          description: Pass as `cursor` in the next request; null when no more pages
+        has_more:
+          type: boolean
+
+    TransferRequest:
+      type: object
+      required: [recipient_cooperative_id]
+      properties:
+        recipient_cooperative_id:
+          type: string
+          format: uuid
+        listing_id:
+          type: ['string', 'null']
+          format: uuid
+          description: Marketplace listing this transfer fulfils, if any
+
+    TransferResponse:
+      type: object
+      required: [certificate_id, from_cooperative_id, to_cooperative_id, transferred_at]
+      properties:
+        certificate_id:
+          type: string
+          format: uuid
+        from_cooperative_id:
+          type: string
+          format: uuid
+        to_cooperative_id:
+          type: string
+          format: uuid
+        transferred_at:
+          type: string
+          format: date-time
+        transfer_tx_hash:
+          type: ['string', 'null']
+          description: On-chain transfer transaction hash, if applicable
 
     # ── Meters ────────────────────────────────────────────────────────────────
     RegisterMeterRequest:

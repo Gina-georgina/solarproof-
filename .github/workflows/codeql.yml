@@ -44,8 +44,13 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          # security-and-quality includes checks for SQL injection (CWE-089)
-          queries: security-and-quality
+          # security-and-quality includes checks for SQL injection (CWE-089).
+          # security-extended additionally pulls in the full JS security suite,
+          # which contains the explicit js/sql-injection query. This covers raw
+          # string interpolation in Supabase query builders (.or() / .filter()).
+          queries: security-and-quality,security-extended
+          packs: |
+            codeql/javascript-queries:codeql-suites/javascript-security-extended.qls
 
       # Rust requires an explicit build so CodeQL can trace it
       - name: Install Rust toolchain

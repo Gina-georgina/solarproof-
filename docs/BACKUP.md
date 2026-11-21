@@ -101,6 +101,54 @@ Compare restored row counts and schema to a known-good environment before promot
 
 ---
 
+## Automated backup verification
+
+Backups are only trustworthy if they can be restored. A weekly CI job (`.github/workflows/verify-backup.yml`, Mondays at **03:00 UTC**) restores the latest backup into a throwaway Supabase project and verifies the result. This is the automated counterpart to the manual restore procedure above.
+
+### What the job does
+
+1. Downloads the most recent `backups/solarproof-backup-<TIMESTAMP>.dump` from S3.
+2. Validates the archive with `pg_restore --list`.
+3. Creates a throwaway Supabase project in the configured org.
+4. Restores the dump into the throwaway project's database.
+5. Runs smoke queries to verify data integrity (row counts for `readings`, `certificates`, and `meters`, plus a schema sanity check).
+6. Measures the total restore time and compares it against the **RTO target of < 1 hour**.
+7. Deletes the throwaway project.
+8. Sends a Slack alert (and fails the job) if the restore, smoke queries, or RTO check fail.
+
+### Required secrets and variables
+
+| Name | Type | Value |
+|---|---|---|
+| `SUPABASE_ACCESS_TOKEN` | Secret | Supabase personal access token (used to create/delete the throwaway project) |
+| `SUPABASE_ORG_ID` | Secret | Supabase organization ID that owns the throwaway project |
+| `SLACK_BACKUP_WEBHOOK` | Secret | Slack incoming webhook URL (shared with the backup job) |
+
+The job also reuses `SUPABASE_DB_URL`, `BACKUP_AWS_ACCESS_KEY_ID`, `BACKUP_AWS_SECRET_ACCESS_KEY`, `BACKUP_S3_BUCKET`, and `BACKUP_AWS_REGION` from the backup setup above.
+
+### Running the verification manually
+
+```bash
+export DATABASE_URL="postgresql://..."          # source DB (used for expected counts)
+export S3_BUCKET="solarproof-backups"
+export AWS_ACCESS_KEY_ID="..."
+export AWS_SECRET_ACCESS_KEY="..."
+export AWS_DEFAULT_REGION="us-east-1"
+export SUPABASE_ACCESS_TOKEN="..."
+export SUPABASE_ORG_ID="..."
+export SLACK_BACKUP_WEBHOOK="https://hooks.slack.com/services/..."
+
+bash scripts/verify-backup.sh
+```
+
+The script exits non-zero if the restore fails, a smoke query fails, or the restore time exceeds the RTO target. On failure it posts to `SLACK_BACKUP_WEBHOOK`; the GitHub Actions job also fails visibly in the Actions tab.
+
+### RTO target
+
+The recovery time objective is **< 1 hour**. The verification job records the measured restore time and fails if it exceeds this target, so regressions in backup size or restore performance are caught before an incident. See `docs/backup-recovery.md` for the full recovery plan.
+
+---
+
 ## Retention
 
 The backup script automatically deletes objects older than 30 days from the `backups/` prefix after each successful upload.
@@ -110,3 +158,5 @@ The backup script automatically deletes objects older than 30 days from the `bac
 ## Failure alerts
 
 If the backup fails (pg_dump error or S3 upload error), a Slack message is sent to the webhook configured in `SLACK_BACKUP_WEBHOOK`. The GitHub Actions job also fails visibly in the Actions tab.
+
+If the weekly verification job fails (restore error, smoke-query mismatch, or RTO breach), the same Slack webhook is notified and the job fails. Treat a verification failure as a production incident: investigate the latest backup before relying on it.

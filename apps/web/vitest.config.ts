@@ -20,6 +20,7 @@ export default defineConfig({
         statements: 90,
       },
     },
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', 'dist', '.idea', '.git', '.cache', 'e2e/**'],
   },
   resolve: {

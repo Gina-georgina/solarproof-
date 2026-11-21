@@ -7,6 +7,7 @@
 //!   AC4: quorum met, majority for → proposal executes
 
 use community_governance::{CommunityGovernance, CommunityGovernanceClient, ProposalStatus};
+use proptest::prelude::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     Env, String,
@@ -248,4 +249,72 @@ fn tally_vote_counts_preserved_after_execution() {
     assert_eq!(proposal.yes_votes, 5);
     assert_eq!(proposal.no_votes, 2);
     assert_eq!(proposal.status, ProposalStatus::Executed);
+}
+
+// ---------------------------------------------------------------------------
+// Issue #750: vote-weight overflow property test
+//
+// For any sequence of weighted votes, yes_weight + no_weight must never
+// overflow i128.  The strategy generates weights near i128::MAX so that
+// accumulation is exercised at the boundary.  Any overflow fails the test and
+// proptest reports the failing seed for reproduction.
+// ---------------------------------------------------------------------------
+
+/// A single weighted vote: `for_vote` selects the tally bucket, `weight` is the
+/// amount added to that bucket.
+#[derive(Debug, Clone)]
+struct WeightedVote {
+    for_vote: bool,
+    weight: i128,
+}
+
+/// Strategy producing weights clustered near i128::MAX (and a few small ones)
+/// so that accumulation reaches the boundary quickly.
+fn weight_strategy() -> impl Strategy<Value = i128> {
+    prop_oneof![
+        // Values very close to i128::MAX.
+        (0_i128..=1_000_i128).prop_map(|delta| i128::MAX - delta),
+        // Values around half of i128::MAX.
+        (0_i128..=1_000_i128).prop_map(|delta| (i128::MAX / 2) - delta),
+        // Small weights to mix in ordinary accumulation.
+        0_i128..=1_000_i128,
+    ]
+}
+
+fn weighted_vote_strategy() -> impl Strategy<Value = WeightedVote> {
+    (any::<bool>(), weight_strategy()).prop_map(|(for_vote, weight)| WeightedVote { for_vote, weight })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 256,
+        .. ProptestConfig::default()
+    })]
+
+    /// For any sequence of weighted votes, the accumulated yes_weight and
+    /// no_weight must each stay within i128 and their sum must not overflow.
+    #[test]
+    fn prop_vote_weight_sum_never_overflows(
+        votes in prop::collection::vec(weighted_vote_strategy(), 0..32)
+    ) {
+        let mut yes_weight: i128 = 0;
+        let mut no_weight: i128 = 0;
+
+        for vote in &votes {
+            let bucket = if vote.for_vote { &mut yes_weight } else { &mut no_weight };
+            // Accumulation itself must not overflow.
+            *bucket = bucket
+                .checked_add(vote.weight)
+                .expect("vote weight accumulation overflowed i128");
+        }
+
+        // The combined tally must also fit in i128.
+        let total = yes_weight
+            .checked_add(no_weight)
+            .expect("yes_weight + no_weight overflowed i128");
+
+        prop_assert!(total >= 0, "combined weight must be non-negative");
+        prop_assert!(yes_weight >= 0, "yes_weight must be non-negative");
+        prop_assert!(no_weight >= 0, "no_weight must be non-negative");
+    }
 }

@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
+import { validateWebhookUrl } from '@/lib/webhooks'
 import { env } from '@/env'
 
 const VALID_EVENTS = [
@@ -85,6 +86,17 @@ export async function POST(req: NextRequest) {
   const parsed = WebhookSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+  }
+
+  // ── SSRF protection ──────────────────────────────────────────────────────
+  // Reject URLs that resolve to private/internal addresses (RFC 1918,
+  // loopback, link-local) to prevent server-side request forgery.
+  const urlValidation = await validateWebhookUrl(parsed.data.url)
+  if (!urlValidation.ok) {
+    return NextResponse.json(
+      { error: 'Webhook URL resolves to a blocked private/internal address' },
+      { status: 400 }
+    )
   }
 
   // Service role required: webhook registration writes without a user JWT

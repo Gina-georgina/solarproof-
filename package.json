@@ -17,9 +17,21 @@
     "bridge:start": "pnpm --filter @solarproof/bridge start",
     "bridge:test": "pnpm --filter @solarproof/bridge test",
     "clean": "turbo clean && rm -rf node_modules",
-    "format": "prettier --write \"**/*.{ts,tsx,md,json}\" --ignore-path .gitignore"
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\" --ignore-path .gitignore",
+    "otel:dashboard": "node scripts/validate-otel-dashboard.mjs"
   },
   "devDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.67.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.208.0",
+    "@opentelemetry/instrumentation-fetch": "^0.208.0",
+    "@opentelemetry/instrumentation-http": "^0.208.0",
+    "@opentelemetry/instrumentation-ioredis": "^0.58.0",
+    "@opentelemetry/instrumentation-pg": "^0.61.0",
+    "@opentelemetry/resources": "^2.2.0",
+    "@opentelemetry/sdk-node": "^0.208.0",
+    "@opentelemetry/sdk-trace-node": "^2.2.0",
+    "@opentelemetry/semantic-conventions": "^1.38.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "conventional-changelog-conventionalcommits": "^8.0.0",
@@ -104,5 +116,9 @@
       "handlebars@>=4.0.0 <=4.7.9": ">=4.7.10",
       "handlebars@>=3.0.0 <=4.7.9": ">=4.7.10"
     }
+  },
+  "otel": {
+    "dashboard": "dashboards/otel-latency.json",
+    "keyRoutes": ["/api/v1/readings", "/api/v1/certificates", "/api/health"]
   }
 }

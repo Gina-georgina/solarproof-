@@ -207,3 +207,104 @@ Example response when tampering is detected:
 - `reason: "genesis_mismatch"` — the first row's `prev_hash` is not the genesis value.
 
 Because every row commits to its predecessor, a single tampered row invalidates all subsequent rows. Report the `first_mismatch.id` — that is the earliest point of divergence and the place to start an investigation.
+
+## Centralised log shipping
+
+stdout JSON is the single source of truth; shipping is handled by the platform, not the app.
+
+### Vercel (production)
+
+1. Vercel → **Project → Settings → Log Drains** → *Add Log Drain*.
+2. Choose the **Datadog** or **Loki** (HTTP) drain type.
+3. Set the drain to forward `info`, `warn`, and `error` level logs from all deployments.
+4. Store the drain secret in Vercel env vars and rotate it quarterly.
+
+### Docker / self-hosted
+
+Run a **Fluent Bit** sidecar that tails the container's stdout and forwards JSON to the aggregator:
+
+```ini
+# fluent-bit.conf
+[INPUT]
+    Name              tail
+    Path              /var/log/containers/*.log
+    Parser            docker
+    Tag               solarproof.*
+
+[FILTER]
+    Name              parser
+    Match             solarproof.*
+    Key_Name          log
+    Parser            json
+
+[OUTPUT]
+    Name              loki
+    Match             solarproof.*
+    Host              loki.internal
+    Port              3100
+    Labels            job=solarproof,level=$level,route=$route
+```
+
+For Datadog, replace the output block with the `datadog` output plugin and set `DD_API_KEY` via the sidecar's environment.
+
+### Retention policy
+
+| Tier | Retention | Storage |
+|---|---|---|
+| Hot (searchable, alerting) | 30 days | Datadog / Loki index |
+| Cold (compliance, forensics) | 365 days | Object storage (S3/GCS) via aggregator archive |
+
+Configure the archive in the aggregator: Datadog → *Logs → Archives*, or Loki → `ruler`/`compactor` retention with an S3 backend.
+
+### ERROR-level rate-spike alerts
+
+Configure in Datadog → **Monitors** or Loki → **Ruler**:
+
+| Alert | Condition | Channel |
+|---|---|---|
+| Error rate spike | `level = error` count > 50 in 5 min (2× baseline) | PagerDuty |
+| Error ratio | `level = error` / total > 5 % over 15 min | Slack `#alerts` |
+| Log silence | 0 logs from any route for 10 min during business hours | Slack `#alerts` |
+
+## OpenTelemetry tracing
+
+Distributed tracing is configured in `instrumentation.ts` via `@opentelemetry/sdk-node`. Traces are exported over OTLP/HTTP to a managed backend.
+
+### Backend choice
+
+Pick one and set the endpoint accordingly:
+
+- **Grafana Tempo** (self-hosted or Grafana Cloud): `OTEL_EXPORTER_OTLP_ENDPOINT=https://tempo-<region>.grafana.net/otlp`
+- **Honeycomb**: `OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io`
+
+### Required environment variables
+
+| Variable | Description |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP/HTTP collector URL (Tempo or Honeycomb) |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Auth headers, e.g. `authorization=Bearer <token>` or `x-honeycomb-team=<key>` |
+| `OTEL_SERVICE_NAME` | Service name, e.g. `solarproof-web` |
+| `OTEL_SERVICE_VERSION` | Deployed git SHA or semver, e.g. `1.4.2` |
+
+Set these in Vercel → **Settings → Environment Variables** per environment, and in `.env.local` for local development (leave the endpoint unset locally to disable export).
+
+### Sampling
+
+| Environment | Sample rate |
+|---|---|
+| Production | 10 % (`OTEL_TRACES_SAMPLER_ARG=0.1`) |
+| Staging | 100 % (`OTEL_TRACES_SAMPLER_ARG=1.0`) |
+
+The sampler is configured as `parentbased_traceidratio` so child spans inherit the parent's sampling decision.
+
+### Latency dashboard
+
+A Grafana dashboard definition lives at `docs/dashboards/otel-latency.json`. Import it via Grafana → **Dashboards → New → Import → Upload JSON**, then select the Tempo data source. It shows p50/p95/p99 latency for key routes (`/api/v1/readings`, `/api/v1/mint`, `/api/v1/verify`) broken down by span name.
+
+### Correlating traces with logs and Sentry
+
+- The `X-Correlation-ID` from middleware is attached to the active span as the `correlation.id` attribute.
+- The active trace ID is added to every log entry as `trace_id` and `span_id`, so a log line links directly to its trace in Tempo/Honeycomb.
+- `createRequestLogger()` sets the Sentry tag `trace_id` alongside `correlationId`, so Sentry errors can be pivoted to the corresponding trace.
+
+Search flow: Sentry error → `trace_id` tag → Tempo/Honeycomb trace → `correlation.id` → log aggregator query.
